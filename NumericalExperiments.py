@@ -3,11 +3,12 @@ from gurobipy import *
 import random
 import time
 
-N_CONSTANT = 6
-P_CONSTANT = 1
+N_CONSTANT = 100
+P_CONSTANT = .2
 ITERATIONS_CONSTANT = 1
-flag_res = False
-flag_unres = False
+PRIZE_MAX_CONSTANT = 3
+flag_res = True
+flag_unres = True
 flag_turn = True
 
 
@@ -126,7 +127,7 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
     inflow[0] = 1
     inflow[n-1] = -1
 
-    visited = m.addVars(nodes, vtype=GRB.BINARY,  name="visited")
+    visited2 = m.addVars(nodes, vtype=GRB.BINARY,  name="visited1")
     flows = m.addVars(nodes,nodes, vtype = GRB.INTEGER, name="flows")
     arrivals2 = m.addVars(nodes, vtype=GRB.INTEGER, name="arrivals2")
 #     arrivals1 = m.addVars(nodes, name="arrivals1")
@@ -134,20 +135,20 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
     second_prizes = m.addVars(nodes, vtype = GRB.BINARY, name = "second_prizes")
     first_prizes = m.addVars(nodes, vtype = GRB.BINARY, name = "first_prizes")
 
-    full_arrivals1 = np.zeros(n)
+    arrivals1 = np.zeros(n)
     #full_arrivals1[0] = 0
 #     print(first_path)
+    visited1 = np.zeros(n)
     for i in range(len(first_path)):
 #         print(i)
         temp = first_path[i]
 #         print(temp)
-        full_arrivals1[temp] = i -.5
-    print(full_arrivals1)
+        arrivals1[temp] = i -.5
+        visited1[temp] = 1
+    # print(full_arrivals1)
 
         # Flow conservation
     m.addConstrs((flows.sum('*',j) + inflow[j] == flows.sum(j,'*') for j in nodes), "Conservation")
-
-    m.addConstrs((arrivals1[i] == full_arrivals1[i] for i in nodes),"ReallyStupid")
 
     #m.addConstrs((arrivals1[i] <= full_arrivals1[i]+. for i in nodes),"ReallyStupider")
 
@@ -155,20 +156,22 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
     m.addConstrs((flows[i,j] <= adjacency[i,j] for i in nodes for j in nodes),"EdgesPresent")
 
     # Prizes uncollected if not visited
-    m.addConstrs((second_prizes[j] <= quicksum(flows[i,j] for i in nodes) for j in nodes), "WhetherVisited")
+    m.addConstrs((visited2[j] <= quicksum(flows[i,j] for i in nodes) for j in nodes), "WhetherVisited1")
+
+    m.addConstrs((visited2[j] >= 1/n* quicksum(flows[i,j] for i in nodes) for j in nodes), "WhetherVisited2")
+
+    m.addConstrs((visited2[j] >= second_prizes[j] for j in nodes), "VisitToCollect")
 
     # Prizes uncollected if not visited FIRST
-    m.addConstrs((second_prizes[i] >= (arrivals1[i] - arrivals2[i])/n for i in nodes), "visitedFirst")
+    m.addConstrs((second_prizes[i] >= (visited2[i]*arrivals1[i] - arrivals2[i])/n for i in nodes), "visitedFirst")
 
-    m.addConstrs((first_prizes[i] >= (arrivals2[i] - arrivals1[i])/n for i in nodes), "visitedSecond")
+    m.addConstrs((first_prizes[i] >= (visited1[i]*arrivals2[i] - arrivals1[i])/n for i in nodes), "visitedSecond")
 
     m.addConstrs((first_prizes[i] + second_prizes[i] <= 1 for i in nodes), "SingleDip")
 
 
     # Enforce correct arrival times
-    #m.addConstrs((arrivals2[i] >= (arrivals2[j] + 1) * flows(j,i) for i >=1 in nodes for j < i in nodes), "arrivalEnforced")
     m.addConstrs((arrivals2[i] >= arrivals2[j] + (flows[j,i] - 1)* n + flows[j,i] for i in nodes for j in nodes), "arrivalEnforced")
-#     m.addConstrs((arrivals2[i] >= arrivals2[j] -1 + 2*flows[j,i] for i in nodes for j in nodes), "arrivalEnforced")
 
     # Set starting point
     m.addConstr(arrivals2[0] == 0, "startEnforced")
@@ -181,11 +184,11 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
         print(m.status)
         solution = m.getAttr('x',flows)
         for i in nodes:
-            print("second prize",i,second_prizes[i].x)
-            print("first_prize",i,first_prizes[i].x)
-            print("first arrival",arrivals1[i].x)
-            print("second arrival",arrivals2[i].x)
-            print(arrivals1[i].x - arrivals2[i].x)
+            # print("second prize",i,second_prizes[i].x)
+            # print("first_prize",i,first_prizes[i].x)
+            # print("first arrival",arrivals1[i])
+            # print("second arrival",arrivals2[i].x)
+            # print(arrivals1[i] - arrivals2[i].x)
             for j in nodes:
                 if solution[i,j] > 0:
                     print('%s -> %s: %g' % (i, j, solution[i,j]))
@@ -248,12 +251,15 @@ class State:
 
 state_space = {}
 
+def getKey(state):
+    return (state.n1,state.n2, tuple(state.visited))
+
 def construct_turn_paths(state_space,initial_state,n):
     def recursive_path_constructor(state,n):
         nonlocal turn
         nonlocal path1
         nonlocal path2
-        next_state = state_space[state]
+        next_state = state_space[getKey(state)]
         if state.n1 < n-1:
             if turn == 0:
                 path1.append(next_state['next_step'])
@@ -280,7 +286,8 @@ def turn_wrapper(adj,n,prizes):
         value = 0
         n1 = state.n1
         n2 = state.n2
-        if state in state_space:
+        key = getKey(state)
+        if key in state_space:
             return
         elif n2 == n-1:
             current_prizes = prizes.copy()
@@ -293,15 +300,15 @@ def turn_wrapper(adj,n,prizes):
             for i in current_visited:
                 current_prizes[i] = 0
 
-            print("\nIn TOP Solver\n")
-            print("N1: ",n1)
-            print("N2: ",n2)
-            # print("New step: ",new_step)
-            # print("Prize at next step: ",step_prize)
-            print(current_prizes,current_visited)
-            print("\n\n")
+            # print("\nIn TOP Solver\n")
+            # print("N1: ",n1)
+            # print("N2: ",n2)
+            # # print("New step: ",new_step)
+            # # print("Prize at next step: ",step_prize)
+            # print(current_prizes,current_visited)
+            # print("\n\n")
             model,flows = solve_TOP(adj,n,1,current_prizes,1,n1)
-            state_space[state] = {'val1':model.objval,'val2':0, 'next_state':State(n-1,n-1,[]),'next_step': construct_path(model,n,flows)}
+            state_space[key] = {'val1':model.objval,'val2':0, 'next_state':State(n-1,n-1,[]),'next_step': construct_path(model,n,flows)}
             print(model.objval,"\n\n")
         else:
             row = adj[n1]
@@ -310,7 +317,7 @@ def turn_wrapper(adj,n,prizes):
                 if row[i] == 1:
                     next_moves.append(i)
             # Assumes non-negative prizes
-            state_space[state] = {'val1':-1,'val2':-1,'next_state':State(-1,-1,[]),'next_step':n-1}
+            state_space[key] = {'val1':-1,'val2':-1,'next_state':State(-1,-1,[]),'next_step':n-1}
             for new_step in next_moves:
                 current_prizes = prizes.copy()
                 current_visited = []
@@ -336,6 +343,7 @@ def turn_wrapper(adj,n,prizes):
                     current_prizes[i] = 0
                 current_prizes[new_step] = 0
                 new_state = State(n2,new_step,current_visited)
+                new_key = getKey(new_state)
                 print("\n\n")
                 print("N1: ",n1)
                 print("N2: ",n2)
@@ -345,9 +353,9 @@ def turn_wrapper(adj,n,prizes):
 
                 print("\n\n")
                 turn_recurser(new_state)
-                if step_prize+state_space[new_state]['val2'] > state_space[state]['val1']:
-                    state_space[state] = {'val1':step_prize+state_space[new_state]['val2'],
-                                          'val2':state_space[new_state]['val1'], 'next_state':new_state,'next_step':new_step}
+                if step_prize+state_space[new_key]['val2'] > state_space[key]['val1']:
+                    state_space[key] = {'val1':step_prize+state_space[new_key]['val2'],
+                                          'val2':state_space[new_key]['val1'], 'next_state':new_state,'next_step':new_step}
 
     state_space = {}
     state = State(0,0,[])
@@ -415,7 +423,7 @@ def run_trials(n,p,iterations):
 		k = 2
 		prizes = []
 		for i in range(n):
-			prizes.append(random.randint(1,1))
+			prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
 		prizes[0] = 0
 		prizes[n-1] = 0
 		adjacency = rand_DAG(n,p)
