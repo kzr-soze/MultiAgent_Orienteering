@@ -2,15 +2,17 @@ import numpy as np
 from gurobipy import *
 import random
 import time
+import csv
+from scipy.spatial import Delaunay
+import matplotlib.pyplot as plt
 
-N_CONSTANT = 100
-P_CONSTANT = .2
+N_CONSTANT = 20
+P_CONSTANT = .25
 ITERATIONS_CONSTANT = 1
-PRIZE_MAX_CONSTANT = 3
+PRIZE_MAX_CONSTANT = 5
 flag_res = True
 flag_unres = True
 flag_turn = True
-
 
 def connected(vertex,adjacency,n,visited):
     visited[vertex] = 1
@@ -43,6 +45,28 @@ def rand_DAG(N,p):
         if(visited[N-1] == 0):
             dag[:,i] = np.zeros(N)
     return dag
+
+def rand_Delaunay_graph(n):
+    x = np.zeros(n)
+    y = np.zeros(n)
+    for i in range(n):
+        x[i] = random.random()
+        y[i] = random.random()
+    x = np.sort(x)
+    points = np.zeros([n,2])
+    points[:,0] = x
+    points[:,1] = y
+    tri = Delaunay(points)
+    plt.triplot(points[:,0], points[:,1], tri.simplices.copy())
+    plt.plot(points[:,0], points[:,1], 'o')
+    plt.show()
+    adj = np.zeros([n,n])
+    for item in tri.vertices:
+        adj[min(item[0],item[1]),max(item[0],item[1])] = 1
+        adj[min(item[0],item[2]),max(item[0],item[2])] = 1
+        adj[min(item[1],item[2]),max(item[1],item[2])] = 1
+    return adj
+
 
 def solve_TOP(adjacency,n,k,prizes,numPaths,s):
     nodes = []
@@ -102,7 +126,7 @@ def construct_path(m,n,flows):
     return path
 
 def score_paths(paths,k,prizes):
-    scores = np.zeros(k,dtype=int)
+    scores = np.zeros(k,dtype=float)
     prizes_copy = prizes.copy()
     go = True
     step = -1
@@ -386,13 +410,16 @@ def reserved_path_solver(adjacency,n,k,prizes):
     scores = []
     new_prizes =prizes.copy()
     for i in range(k):
+        print("\n\n",new_prizes,"\n\n")
         model, flows = solve_TOP(adjacency,n,1,new_prizes,1,0)
         path = construct_path(model,n,flows)
         score = score_paths([path],1,new_prizes)
         print(path,score)
         for j in path:
             new_prizes[j] = 0
+
         paths.append(path)
+        print("\nScore: ",score[0],"\n")
         scores.append(score[0])
     return scores,paths
 
@@ -404,72 +431,123 @@ def effective_n(adjacency, n):
             num +=1
     return num
 
+def run_test():
+    adj = [[0,1,1,0,0,0],
+            [0,0,0,1,1,0],
+            [0,0,0,0,1,0],
+            [0,0,0,0,0,1],
+            [0,0,0,0,0,1],
+            [0,0,0,0,0,0]]
+    adjacency = np.zeros([6,6])
+    for i in range(6):
+        for j in range(6):
+            adjacency[i,j] = adj[i][j]
+    prizes = [0,1.1,1.0,1.0,1.1,0]
+    k = 2
+    n = 6
+    scores_correct, paths = solve_TOP(adjacency,n,k,prizes,1,0)
+    scores_res, paths = reserved_path_solver(adjacency,n,k,prizes)
+    scores_unres, holder = unreserved_solver(adjacency,n,prizes,k)
+    scores_turn, paths = turn_wrapper(adjacency,n,prizes)
+    correct = [2.2,1]                           # All strategies should result in this
+    print("TOP Scores: ", scores_correct.objval)       # Should be [2.1,2.1]
+    print("Correct game scores: ",correct)
+    print("Reserved scores: ",scores_res)
+    print("Unreserved scores: ",scores_unres)
+    print("Turn scores: ",scores_turn)
+
 def run_trials(n,p,iterations):
 
-	central = []
-	reserved = []
-	turn = []
-	unreserved = []
-	nodes = []
-	comp_central = []
-	comp_reserved = []
-	comp_unreserved = []
-	comp_turn = []
-	start_time = time.time()
-	elapsed_time = time.time() - start_time
-	for i in range(iterations):
-		#n = random.randint(5,25)
-		#p = .1 + .6*random.random()
-		k = 2
-		prizes = []
-		for i in range(n):
-			prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
-		prizes[0] = 0
-		prizes[n-1] = 0
-		adjacency = rand_DAG(n,p)
-		n_prime = effective_n(adjacency,n)
-		nodes.append(n_prime)
-		print(n_prime)
-		print(p)
-		print(adjacency)
+    central = []
+    reserved = []
+    turn = []
+    unreserved = []
+    nodes = []
+    comp_central = []
+    comp_reserved = []
+    comp_unreserved = []
+    comp_turn = []
+    start_time = time.time()
+    elapsed_time = time.time() - start_time
+    # filename = ('ER_trial_results_{}_{}.csv'.format(n,p))
+    filename = ('Delaunay_trial_results_{}.csv'.format(n))
+    for i in range(iterations):
+        #n = random.randint(5,25)
+        #p = .1 + .6*random.random()
+        k = 2
+        prizes = []
+        for i in range(n):
+            prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
+        prizes[0] = 0
+        prizes[n-1] = 0
+        # adjacency = rand_DAG(n,p)
+        adjacency = rand_Delaunay_graph(n)
+        n_prime = effective_n(adjacency,n)
+        nodes.append(n_prime)
+        print(n_prime)
+        print(p)
+        print(adjacency)
 
-		# Compute central solution
-		start_time = time.time()
-		m1, flows1 = solve_TOP(adjacency,n,k,prizes,1,0)
-		comp_central.append(time.time()-start_time)
-		central.append(m1.objval)
-		holder = 0;
+        # Compute central solution
+        start_time = time.time()
+        m1, flows1 = solve_TOP(adjacency,n,k,prizes,1,0)
+        comp_central.append(time.time()-start_time)
+        central.append(m1.objval)
+        holder = 0;
 
-		print("\n\n Finished Central \n\n")
-		print(prizes)
+        print("\n\n Finished Central \n\n")
+        print(prizes)
 
-		# Compute reserved solution
-		if flag_res:
-			start_time = time.time()
-			scores, paths = reserved_path_solver(adjacency,n,k,prizes)
-			comp_reserved.append(time.time()-start_time)
-			reserved.append(np.sum(scores))
+        # Compute reserved solution
+        if flag_res:
+            start_time = time.time()
+            scores, paths = reserved_path_solver(adjacency,n,k,prizes)
+            comp_reserved.append(time.time()-start_time)
+            reserved.append(np.sum(scores))
 
-		# Compute unreserved solution
-		if flag_unres:
-			start_time = time.time()
-			scores, holder = unreserved_solver(adjacency,n,prizes,k)
-			comp_unreserved.append(time.time()-start_time)
-			unreserved.append(np.sum(scores))
+        # Compute unreserved solution
+        if flag_unres:
+            start_time = time.time()
+            scores, holder = unreserved_solver(adjacency,n,prizes,k)
+            comp_unreserved.append(time.time()-start_time)
+            unreserved.append(np.sum(scores))
 
-		# Compute turn-based solution
-		if flag_turn:
-			start_time = time.time()
-			scores, paths = turn_wrapper(adjacency,n,prizes)
-			comp_turn.append(time.time()-start_time)
-			turn.append(np.sum(scores))
+        # Compute turn-based solution
+        if flag_turn:
+            start_time = time.time()
+            scores, paths = turn_wrapper(adjacency,n,prizes)
+            comp_turn.append(time.time()-start_time)
+            turn.append(np.sum(scores))
+        with open(filename, mode='w') as trial_results:
+            results = csv.writer(trial_results, delimiter=',',quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            results.writerow(nodes)
+            results.writerow(central)
+            results.writerow(reserved)
+            results.writerow(unreserved)
+            results.writerow(turn)
+            results.writerow(comp_central)
+            results.writerow(comp_reserved)
+            results.writerow(comp_unreserved)
+            results.writerow(comp_turn)
 
+    print(adjacency)
+    print(holder)
+    print(prizes)
+    print(central,reserved,unreserved,turn)
+    print(comp_central,comp_reserved,comp_unreserved,comp_turn)
+    with open(filename, mode='w') as trial_results:
+        results = csv.writer(trial_results, delimiter=',',quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        results.writerow(nodes)
+        results.writerow(central)
+        results.writerow(reserved)
+        results.writerow(unreserved)
+        results.writerow(turn)
+        results.writerow(comp_central)
+        results.writerow(comp_reserved)
+        results.writerow(comp_unreserved)
+        results.writerow(comp_turn)
 
-	print(adjacency)
-	print(holder)
-	print(prizes)
-	print(central,reserved,unreserved,turn)
-	print(comp_central,comp_reserved,comp_unreserved,comp_turn)
 
 if __name__ == "__main__":
-	run_trials(N_CONSTANT,P_CONSTANT,ITERATIONS_CONSTANT)
+    run_trials(N_CONSTANT,P_CONSTANT,ITERATIONS_CONSTANT)
+    # run_test()
