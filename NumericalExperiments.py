@@ -6,9 +6,9 @@ import csv
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 
-N_CONSTANT = 20
+N_CONSTANT = 45
 P_CONSTANT = .25
-ITERATIONS_CONSTANT = 1
+ITERATIONS_CONSTANT = 8
 PRIZE_MAX_CONSTANT = 5
 flag_res = True
 flag_unres = True
@@ -57,9 +57,9 @@ def rand_Delaunay_graph(n):
     points[:,0] = x
     points[:,1] = y
     tri = Delaunay(points)
-    plt.triplot(points[:,0], points[:,1], tri.simplices.copy())
-    plt.plot(points[:,0], points[:,1], 'o')
-    plt.show()
+    # plt.triplot(points[:,0], points[:,1], tri.simplices.copy())
+    # plt.plot(points[:,0], points[:,1], 'o')
+    # plt.show()
     adj = np.zeros([n,n])
     for item in tri.vertices:
         adj[min(item[0],item[1]),max(item[0],item[1])] = 1
