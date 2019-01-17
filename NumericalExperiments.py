@@ -6,7 +6,7 @@ import csv
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 
-N_CONSTANT = 30
+N_CONSTANT = 35
 P_CONSTANT = .25
 ITERATIONS_CONSTANT = 20
 PRIZE_MAX_CONSTANT = 3
@@ -72,57 +72,67 @@ def rand_Delaunay_graph(n):
 
 def rand_R2_graph(n):
     go = True
-    visited = []
-    adj = np.zeros((n,n),dtype = int)
-    dist = np.zeros((n,n),dtype = int)
-    while go:
-        x = np.zeros(n)
-        y = np.zeros(n)
-        for i in range(n):
-            x[i] = random.random() * BOX_SIZE
-            y[i] = random.random() * BOX_SIZE
-        x = np.sort(x)
+    n_original = n
+    go_outer = True
+    while go_outer:
+        go = True
+        n=n_original
+        visited = []
         adj = np.zeros((n,n),dtype = int)
         dist = np.zeros((n,n),dtype = int)
-        for i in range(n):
-            for j in range(n):
-                temp = int(np.ceil(np.linalg.norm((x[i]-x[j],y[i]-y[j]))))
-                if temp <= MAX_LENGTH and i != j:
-                    adj[min(i,j),max(i,j)] = 1
-                    dist[min(i,j),max(i,j)] = temp
-
-        visited = np.zeros(n)
-        visited = connected(0,adj,n,visited)
-        if visited[n-1] == 1:
-            go = False
-    reachable_list = []
-    go = True
-    while go:
-        visited = np.zeros(n)
-        visited = connected(0,adj,n,visited)
-        reachable_list = []
-        go = False
-        count = 0
-        for i in range(n):
-            visited2 = np.zeros(n)
-            visited2 = connected(i,adj,n,visited2)
-            if visited[i] == 1 and visited2[n-1] ==1:
-                reachable_list.append(i)
-            else:
-                go = True
-                count +=1
-        if go:
-            n = len(reachable_list)
-            adj_update = np.zeros((n,n), dtype=int)
-            dist_update = np.zeros((n,n), dtype = int)
+        while go:
+            x = np.zeros(n)
+            y = np.zeros(n)
             for i in range(n):
-                i2 = reachable_list[i]
+                x[i] = random.random() * BOX_SIZE
+                y[i] = random.random() * BOX_SIZE
+            x = np.sort(x)
+            adj = np.zeros((n,n),dtype = int)
+            dist = np.zeros((n,n),dtype = int)
+            for i in range(n):
                 for j in range(n):
-                    j2 = reachable_list[j]
-                    adj_update[i,j] = adj[i2,j2]
-                    dist_update[i,j] = dist[i2,j2]
-            dist = dist_update
-            adj = adj_update
+                    temp = int(np.ceil(np.linalg.norm((x[i]-x[j],y[i]-y[j]))))
+                    if temp <= MAX_LENGTH and i != j:
+                        adj[min(i,j),max(i,j)] = 1
+                        dist[min(i,j),max(i,j)] = temp
+
+            visited = np.zeros(n)
+            visited = connected(0,adj,n,visited)
+            if visited[n-1] == 1:
+                go = False
+        reachable_list = []
+        go = True
+        while go:
+            visited = np.zeros(n)
+            visited = connected(0,adj,n,visited)
+            reachable_list = []
+            go = False
+            count = 0
+            for i in range(n):
+                visited2 = np.zeros(n)
+                visited2 = connected(i,adj,n,visited2)
+                if visited[i] == 1 and visited2[n-1] ==1:
+                    reachable_list.append(i)
+                else:
+                    go = True
+                    count +=1
+            if go:
+                n = len(reachable_list)
+                adj_update = np.zeros((n,n), dtype=int)
+                dist_update = np.zeros((n,n), dtype = int)
+                for i in range(n):
+                    i2 = reachable_list[i]
+                    for j in range(n):
+                        j2 = reachable_list[j]
+                        adj_update[i,j] = adj[i2,j2]
+                        dist_update[i,j] = dist[i2,j2]
+                dist = dist_update
+                adj = adj_update
+        print(adj)
+        print(n)
+        m1, flows = solve_TOP(adj,n,1,np.zeros(n)+1,1,0,[n*n],dist)
+        if m1.status == GRB.Status.OPTIMAL:
+            go_outer = False
     # go = True
     # while go:
     #     go = False
