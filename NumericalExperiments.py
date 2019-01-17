@@ -130,7 +130,7 @@ def rand_R2_graph(n):
                 adj = adj_update
         print(adj)
         print(n)
-        m1, flows = solve_TOP(adj,n,1,np.zeros(n)+1,1,0,[n*n],dist)
+        m1, flows = solve_TOP(adj,n,1,np.zeros(n),1,0,[MAX_RANGE],dist)
         if m1.status == GRB.Status.OPTIMAL:
             go_outer = False
     # go = True
