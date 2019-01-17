@@ -6,10 +6,13 @@ import csv
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 
-N_CONSTANT = 45
+N_CONSTANT = 30
 P_CONSTANT = .25
-ITERATIONS_CONSTANT = 8
-PRIZE_MAX_CONSTANT = 5
+ITERATIONS_CONSTANT = 20
+PRIZE_MAX_CONSTANT = 3
+MAX_LENGTH = 3
+BOX_SIZE = 10
+MAX_RANGE = 15
 flag_res = True
 flag_unres = True
 flag_turn = True
@@ -67,35 +70,157 @@ def rand_Delaunay_graph(n):
         adj[min(item[1],item[2]),max(item[1],item[2])] = 1
     return adj
 
+def rand_R2_graph(n):
+    go = True
+    visited = []
+    adj = np.zeros((n,n),dtype = int)
+    dist = np.zeros((n,n),dtype = int)
+    while go:
+        x = np.zeros(n)
+        y = np.zeros(n)
+        for i in range(n):
+            x[i] = random.random() * BOX_SIZE
+            y[i] = random.random() * BOX_SIZE
+        x = np.sort(x)
+        adj = np.zeros((n,n),dtype = int)
+        dist = np.zeros((n,n),dtype = int)
+        for i in range(n):
+            for j in range(n):
+                temp = int(np.ceil(np.linalg.norm((x[i]-x[j],y[i]-y[j]))))
+                if temp <= MAX_LENGTH and i != j:
+                    adj[min(i,j),max(i,j)] = 1
+                    dist[min(i,j),max(i,j)] = temp
 
-def solve_TOP(adjacency,n,k,prizes,numPaths,s):
+        visited = np.zeros(n)
+        visited = connected(0,adj,n,visited)
+        if visited[n-1] == 1:
+            go = False
+    reachable_list = []
+    go = True
+    while go:
+        visited = np.zeros(n)
+        visited = connected(0,adj,n,visited)
+        reachable_list = []
+        go = False
+        count = 0
+        for i in range(n):
+            visited2 = np.zeros(n)
+            visited2 = connected(i,adj,n,visited2)
+            if visited[i] == 1 and visited2[n-1] ==1:
+                reachable_list.append(i)
+            else:
+                go = True
+                count +=1
+        if go:
+            n = len(reachable_list)
+            adj_update = np.zeros((n,n), dtype=int)
+            dist_update = np.zeros((n,n), dtype = int)
+            for i in range(n):
+                i2 = reachable_list[i]
+                for j in range(n):
+                    j2 = reachable_list[j]
+                    adj_update[i,j] = adj[i2,j2]
+                    dist_update[i,j] = dist[i2,j2]
+            dist = dist_update
+            adj = adj_update
+    # go = True
+    # while go:
+    #     go = False
+    #     visited = connected(0,adj,n,visited)
+    #     temp_list = []
+    #     for i in range(n):
+    #         visited2 = np.zeros(n)
+    #         visited2 = connected(i,adj,n,visited)
+    #         if(i not in temp_list and (visited2[n-1] == 0 or visited[i] == 0)):
+    #             temp_list.append(i)
+    #             go = True
+    #             adj[i] = np.zeros(n)
+    #             dist[i] = np.zeros(n)
+    #             adj[:,i] = np.zeros(n)
+    #             dist[:,i] = np.zeros(n)
+    return adj, dist, n
+
+def convert_weighted_DAG(adj,n,prizes):
+    print(adj)
+    revised_n = n
+    count = 0
+    new_labels = {}
+    edges = []
+    temp_adj = adj.copy()
+    temp_adj = np.maximum(temp_adj-1,0)
+    for i in range(n):
+        new_labels[i] = count
+        count += np.sum(temp_adj[i])
+        count += 1
+
+    revised_n = int(count)
+    count = 1
+    print(revised_n)
+    revised_adj = np.zeros((revised_n,revised_n), dtype=int)
+    revised_prizes = np.zeros((revised_n))
+
+    for i in range(n):
+        label = int(new_labels[i])
+        count = max(count, label+1)
+        revised_prizes[label] = prizes[i]
+        flag = True
+        # count = label + 1
+        for j in range(n):
+            dist = int(adj[i][j])
+            if dist == 1:
+                flag = False
+                revised_adj[label][int(new_labels[j])] = 1
+                # count +=1
+            elif dist > 1:
+                flag = False
+                print(i,j,new_labels)
+                revised_adj[label][count] = 1
+                for m in range(dist-2):
+                    revised_adj[count][count+1] = 1
+                    count += 1
+                revised_adj[count][int(new_labels[j])] = 1
+                count += 1
+                if int(count) == int(new_labels[j]):
+                    count +=1
+    print(new_labels)
+    return revised_n,revised_adj, revised_prizes
+
+def solve_TOP(adjacency,n,k,prizes,numPaths,s,ranges,distances):
     nodes = []
     for i in range(n):
         nodes.append(i)
     m = Model("OP")
+
+    players = []
+    for i in range(k):
+        players.append(i)
 
     m.setParam(GRB.Param.PoolSearchMode,2)
     m.setParam(GRB.Param.PoolSolutions,numPaths)
 
 
     inflow = np.zeros(n)
-    inflow[s] = k
-    inflow[n-1] = -k
+    inflow[s] = 1
+    inflow[n-1] = -1
 
     visited = m.addVars(nodes, vtype=GRB.BINARY,  name="visited")
-    flows = m.addVars(nodes,nodes, vtype = GRB.INTEGER, name="flows")
+    flows = m.addVars(k,nodes,nodes, vtype = GRB.BINARY, name="flows")
 
     # Flow conservation
     m.addConstrs(
-    (flows.sum('*',j) + inflow[j] == flows.sum(j,'*') for j in nodes), "Conservation")
+    (flows.sum(i,'*',j) + inflow[j] == flows.sum(i,j,'*') for j in nodes for i in players), "Conservation")
+
 
     # Flow only on existing arcs
-    m.addConstrs((flows[i,j] <= k*adjacency[i,j] for i in nodes for j in nodes),"EdgesPresent")
+    m.addConstrs((flows[l,i,j] <= adjacency[i,j] for i in nodes for j in nodes for l in players),"EdgesPresent")
 
     # Visited nodes
-    m.addConstrs((visited[j] - quicksum(flows[i,j] for i in nodes) <= 0 for j in nodes), "WhetherVisited")
+    m.addConstrs((visited[j] - quicksum(flows[l,i,j] for i in nodes for l in players) <= 0 for j in nodes), "WhetherVisited")
 
 #     obj = quicksum(visited[j] * prizes[j])
+
+    # Range restrictions
+    m.addConstrs((quicksum(distances[i,j]*flows[l,i,j] for i in nodes for j in nodes) <= ranges[l] for l in players),"RangeLimit")
 
     # Objective Function
     m.setObjective((quicksum(visited[j]*prizes[j] for j in nodes)), GRB.MAXIMIZE)
@@ -103,18 +228,39 @@ def solve_TOP(adjacency,n,k,prizes,numPaths,s):
     m.optimize()
     if m.status == GRB.Status.OPTIMAL:
         print(m.status)
+        print(m.objval)
         solution = m.getAttr('x',flows)
-        for i in nodes:
-            for j in nodes:
-                if solution[i,j] > 0:
-                    print('%s -> %s: %g' % (i, j, solution[i,j]))
+        for l in players:
+            for i in nodes:
+                for j in nodes:
+                    if solution[l,i,j] > 0:
+                        print('%s: %s -> %s: %g' % (l,i, j, solution[l,i,j]))
 
     #save model
 
     return m,flows
 
 # Assumes k = 1, constructs path from solution
-def construct_path(m,n,flows):
+def construct_path(m,n,flows,k):
+
+    solution = m.getAttr('x',flows)
+    # print(solution)
+    paths = []
+    nodes = range(n)
+    for l in range(k):
+        path = [0]
+        for i in nodes:
+            for j in nodes:
+                if solution[l,i,j] > 0.5:
+                    path.append(j)
+        if k == 1:
+            paths = path
+        else:
+            paths.append(path)
+    return paths
+
+# Assumes k = 1, constructs path from solution
+def unres_construct_path(m,n,flows):
     solution = m.getAttr('x',flows)
     # print(solution)
     path = [0]
@@ -141,7 +287,7 @@ def score_paths(paths,k,prizes):
                 go = True
     return scores
 
-def unreserved_best_response(adjacency,n,prizes,first_path):
+def unreserved_best_response(adjacency,n,prizes,first_path,ranges,distances):
     nodes = []
     for i in range(n):
         nodes.append(i)
@@ -152,7 +298,7 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
     inflow[n-1] = -1
 
     visited2 = m.addVars(nodes, vtype=GRB.BINARY,  name="visited1")
-    flows = m.addVars(nodes,nodes, vtype = GRB.INTEGER, name="flows")
+    flows = m.addVars(nodes,nodes, vtype = GRB.BINARY, name="flows")
     arrivals2 = m.addVars(nodes, vtype=GRB.INTEGER, name="arrivals2")
 #     arrivals1 = m.addVars(nodes, name="arrivals1")
     arrivals1 = m.addVars(nodes, lb = -1, name = "arrivals1")
@@ -202,6 +348,8 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
 
     m.setObjective((quicksum(second_prizes[j] for j in nodes)), GRB.MAXIMIZE)
 
+    m.addConstr((quicksum(flows[i,j]*distances[i,j] for i in nodes for j in nodes) <= ranges[1]),"RangeRestriction")
+
     m.optimize()
     print(m.objval)
     if m.status == GRB.Status.OPTIMAL:
@@ -221,7 +369,7 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
 
     #save model
     print(first_path)
-    print(construct_path(m,n,flows))
+    print(unres_construct_path(m,n,flows))
 
 
     return m,flows
@@ -231,10 +379,10 @@ def unreserved_best_response(adjacency,n,prizes,first_path):
 #     model, flows = solve_TOP
 
 
-def unreserved_solver(adjacency, n, prizes, k):
-    model1, flows1 = solve_TOP(adjacency,n,1,prizes,1,0);
+def unreserved_solver(adjacency, n, prizes, k,ranges, distances):
+    model1, flows1 = solve_TOP(adjacency,n,1,prizes,1,0,ranges,distances);
     print("point 1")
-    path1 = construct_path(model1,n,flows1)
+    path1 = construct_path(model1,n,flows1,1)
     solution = 0
     first_best_score = 0
     first_best_path = []
@@ -243,14 +391,14 @@ def unreserved_solver(adjacency, n, prizes, k):
     go = True
     while go:
         print("point 2")
-        path1 = construct_path(model1,n,flows1)
+        path1 = construct_path(model1,n,flows1,1)
         print(path1)
         path_val = model1.objval
-        model2, flows2 = unreserved_best_response(adjacency,n,prizes,path1)
+        model2, flows2 = unreserved_best_response(adjacency,n,prizes,path1,ranges,distances)
         print("\n\n Check here \n\n")
         print(model2.objval)
 #         print(model2.getAttr('x'))
-        path2 = construct_path(model2,n,flows2);
+        path2 = unres_construct_path(model2,n,flows2);
         print(path2)
         scores = score_paths([path1,path2],2,prizes)
 #         print(scores)
@@ -263,20 +411,22 @@ def unreserved_solver(adjacency, n, prizes, k):
             go = False
         else:
             l = len(path1)-1
-            model1.addConstr((quicksum(flows1[path1[j],path1[j+1]] for j in range(l)) <= l-2))
+            model1.addConstr((quicksum(flows1[0,path1[j],path1[j+1]] for j in range(l)) <= l-2))
             model1.optimize()
     return [first_best_score,second_best_score],[first_best_path,second_best_path]
 
 class State:
-    def __init__(self,node1,node2,visited_nodes):
+    def __init__(self,node1,node2,range1,range2,visited_nodes):
         self.n1 = node1
         self.n2 = node2
+        self.r1 = range1
+        self.r2 = range2
         self.visited = visited_nodes
 
 state_space = {}
 
 def getKey(state):
-    return (state.n1,state.n2, tuple(state.visited))
+    return (state.n1,state.n2,state.r1,state.r2, tuple(state.visited))
 
 def construct_turn_paths(state_space,initial_state,n):
     def recursive_path_constructor(state,n):
@@ -300,7 +450,7 @@ def construct_turn_paths(state_space,initial_state,n):
     recursive_path_constructor(initial_state,n)
     return path1,path2
 
-def turn_wrapper(adj,n,prizes):
+def turn_wrapper(adj,n,prizes,ranges):
     def turn_recurser(state):
         nonlocal state_space
         nonlocal adj
@@ -310,79 +460,88 @@ def turn_wrapper(adj,n,prizes):
         value = 0
         n1 = state.n1
         n2 = state.n2
+        r1 = state.r1
+        r2 = state.r2
         key = getKey(state)
-        if key in state_space:
-            return
-        elif n2 == n-1:
-            current_prizes = prizes.copy()
-            current_visited = []
-            for i in state.visited:
-                if i > n1:
-                    current_visited.append(i)
-            current_visited.append(n1)
-            current_visited = list(set(current_visited))
-            for i in current_visited:
-                current_prizes[i] = 0
-
-            # print("\nIn TOP Solver\n")
-            # print("N1: ",n1)
-            # print("N2: ",n2)
-            # # print("New step: ",new_step)
-            # # print("Prize at next step: ",step_prize)
-            # print(current_prizes,current_visited)
-            # print("\n\n")
-            model,flows = solve_TOP(adj,n,1,current_prizes,1,n1)
-            state_space[key] = {'val1':model.objval,'val2':0, 'next_state':State(n-1,n-1,[]),'next_step': construct_path(model,n,flows)}
-            print(model.objval,"\n\n")
-        else:
-            row = adj[n1]
-            next_moves = []
-            for i in range(n):
-                if row[i] == 1:
-                    next_moves.append(i)
-            # Assumes non-negative prizes
-            state_space[key] = {'val1':-1,'val2':-1,'next_state':State(-1,-1,[]),'next_step':n-1}
-            for new_step in next_moves:
+        if r1 >0 :
+            if key in state_space:
+                return
+            elif n2 == n-1:
                 current_prizes = prizes.copy()
                 current_visited = []
-                lb = min(new_step,n2)
-                step_prize = 0
-                if n1 >= n2:
-                    current_visited = state.visited.copy()
-                    current_visited.append(new_step)
-                    step_prize = prizes[new_step]
-                elif new_step > n2:
-                    current_visited = [new_step]
-                    step_prize = prizes[new_step]
-                else:
-                    current_visited.append(n2)
-                    for i in state.visited:
-                        if i >= lb:
-                            current_visited.append(i)
-                    if new_step not in state.visited:
-                        step_prize = prizes[new_step]
-
+                for i in state.visited:
+                    if i > n1:
+                        current_visited.append(i)
+                current_visited.append(n1)
                 current_visited = list(set(current_visited))
                 for i in current_visited:
                     current_prizes[i] = 0
-                current_prizes[new_step] = 0
-                new_state = State(n2,new_step,current_visited)
-                new_key = getKey(new_state)
-                print("\n\n")
-                print("N1: ",n1)
-                print("N2: ",n2)
-                print("New step: ",new_step)
-                print("Prize at next step: ",step_prize)
-                print(current_prizes,current_visited)
 
-                print("\n\n")
-                turn_recurser(new_state)
-                if step_prize+state_space[new_key]['val2'] > state_space[key]['val1']:
-                    state_space[key] = {'val1':step_prize+state_space[new_key]['val2'],
-                                          'val2':state_space[new_key]['val1'], 'next_state':new_state,'next_step':new_step}
+                # print("\nIn TOP Solver\n")
+                # print("N1: ",n1)
+                # print("N2: ",n2)
+                # # print("New step: ",new_step)
+                # # print("Prize at next step: ",step_prize)
+                # print(current_prizes,current_visited)
+                # print("\n\n")
+                model,flows = solve_TOP(adj,n,1,current_prizes,1,n1,[r1],adj)
+                if model.status != GRB.Status.OPTIMAL:
+                    state_space[key] = {'val1':-1*np.inf,'val2':-1*np.inf, 'range1':0, 'range2':0 ,'next_state':State(-1,-1,r1,r2,[]),'next_step': -1}
+                else:
+                    state_space[key] = {'val1':model.objval,'val2':0, 'range1':0, 'range2':0, 'next_state':State(-1,-1,r1,r2,[]),'next_step': construct_path(model,n,flows,1)}
+                    print(model.objval,"\n\n")
+            else:
+                row = adj[n1]
+                next_moves = []
+                for i in range(n):
+                    if row[i] == 1:
+                        next_moves.append(i)
+                # Assumes non-negative prizes
+                print(key)
+                state_space[key] = {'val1':-1*np.inf,'val2':-1*np.inf,'range1':r1,'range2':r2, 'next_state':State(-1,-1,r1,r2,[]),'next_step':n-1}
+                for new_step in next_moves:
+                    current_prizes = prizes.copy()
+                    current_visited = []
+                    lb = min(new_step,n2)
+                    step_prize = 0
+                    if n1 >= n2:
+                        current_visited = state.visited.copy()
+                        current_visited.append(new_step)
+                        step_prize = prizes[new_step]
+                    elif new_step > n2:
+                        current_visited = [new_step]
+                        step_prize = prizes[new_step]
+                    else:
+                        current_visited.append(n2)
+                        for i in state.visited:
+                            if i >= lb:
+                                current_visited.append(i)
+                        if new_step not in state.visited:
+                            step_prize = prizes[new_step]
+
+                    current_visited = list(set(current_visited))
+                    for i in current_visited:
+                        current_prizes[i] = 0
+                    current_prizes[new_step] = 0
+                    new_state = State(n2,new_step,r2,r1-1,current_visited)
+                    new_key = getKey(new_state)
+                    print("\n\n")
+                    print("N1: ",n1)
+                    print("N2: ",n2)
+                    print("New step: ",new_step)
+                    print("Prize at next step: ",step_prize)
+                    print(current_prizes,current_visited)
+
+                    print("\n\n")
+                    turn_recurser(new_state)
+                    if step_prize+state_space[new_key]['val2'] > state_space[key]['val1']:
+                        state_space[key] = {'val1':step_prize+state_space[new_key]['val2'],
+                                              'val2':state_space[new_key]['val1'], 'range1':r2, 'range2':r1 - 1, 'next_state':new_state,'next_step':new_step}
+        else:
+            state_space[key] = {'val1':-1*np.inf,'val2':-1*np.inf, 'range1':r1, 'range2':r2, 'next_state':State(-1,-1,r1,r2,[]),'next_step': -1}
 
     state_space = {}
-    state = State(0,0,[])
+    state = State(0,0,ranges[0],ranges[1],[])
     turn_recurser(state)
     path1,path2 = construct_turn_paths(state_space,state,n)
     p1 = []
@@ -405,14 +564,14 @@ def turn_wrapper(adj,n,prizes):
     print(scores,[p1,p2])
     return scores,[p1,p2]
 
-def reserved_path_solver(adjacency,n,k,prizes):
+def reserved_path_solver(adjacency,n,k,prizes,ranges,distances):
     paths = []
     scores = []
     new_prizes =prizes.copy()
     for i in range(k):
         print("\n\n",new_prizes,"\n\n")
-        model, flows = solve_TOP(adjacency,n,1,new_prizes,1,0)
-        path = construct_path(model,n,flows)
+        model, flows = solve_TOP(adjacency,n,1,new_prizes,1,0,ranges,distances)
+        path = construct_path(model,n,flows,1)
         score = score_paths([path],1,new_prizes)
         print(path,score)
         for j in path:
@@ -432,6 +591,7 @@ def effective_n(adjacency, n):
     return num
 
 def run_test():
+    ranges = [100,100]
     adj = [[0,1,1,0,0,0],
             [0,0,0,1,1,0],
             [0,0,0,0,1,0],
@@ -442,13 +602,19 @@ def run_test():
     for i in range(6):
         for j in range(6):
             adjacency[i,j] = adj[i][j]
+    distances = adjacency.copy()*3
     prizes = [0,1.1,1.0,1.0,1.1,0]
     k = 2
     n = 6
-    scores_correct, paths = solve_TOP(adjacency,n,k,prizes,1,0)
-    scores_res, paths = reserved_path_solver(adjacency,n,k,prizes)
-    scores_unres, holder = unreserved_solver(adjacency,n,prizes,k)
-    scores_turn, paths = turn_wrapper(adjacency,n,prizes)
+    scores_correct, paths = solve_TOP(adjacency,n,k,prizes,1,0,ranges,distances)
+    scores_res, paths = reserved_path_solver(adjacency,n,k,prizes,ranges,distances)
+    scores_unres, holder = unreserved_solver(adjacency,n,prizes,k,ranges, distances)
+    n_unweighted,adj_unweighted,prizes_unweighted = convert_weighted_DAG(distances,n,prizes)
+    scores_turn, paths = turn_wrapper(adj_unweighted,n_unweighted,prizes_unweighted,ranges)
+    convert_weighted_DAG(distances,n,prizes)
+    print(adj_unweighted)
+    print(distances)
+    print(prizes_unweighted)
     correct = [2.2,1]                           # All strategies should result in this
     print("TOP Scores: ", scores_correct.objval)       # Should be [2.1,2.1]
     print("Correct game scores: ",correct)
@@ -457,7 +623,7 @@ def run_test():
     print("Turn scores: ",scores_turn)
 
 def run_trials(n,p,iterations):
-
+    r = MAX_RANGE
     central = []
     reserved = []
     turn = []
@@ -470,19 +636,31 @@ def run_trials(n,p,iterations):
     start_time = time.time()
     elapsed_time = time.time() - start_time
     # filename = ('ER_trial_results_{}_{}.csv'.format(n,p))
-    filename = ('Delaunay_trial_results_{}.csv'.format(n))
+    filename = ('R2_trial_results_{}_{}_{}.csv'.format(n,r,BOX_SIZE))
+    ranges = [MAX_RANGE,MAX_RANGE]
+    paths_res = []
+    paths_unres = []
+    paths_turn = []
+    paths = []
+    prizes_unweighted = []
+    adj_unweighted = []
+    n_original = n
     for i in range(iterations):
         #n = random.randint(5,25)
         #p = .1 + .6*random.random()
+        n = n_original
         k = 2
+        # adjacency = rand_DAG(n,p)
+        #adjacency = rand_Delaunay_graph(n)
+        #distances = adjacency * (np.random.randint(2,size=(n,n))+1)
+        distances = []
+        adjacency, distances, n = rand_R2_graph(n)
+        n_prime = effective_n(adjacency,n)
         prizes = []
         for i in range(n):
             prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
         prizes[0] = 0
         prizes[n-1] = 0
-        # adjacency = rand_DAG(n,p)
-        adjacency = rand_Delaunay_graph(n)
-        n_prime = effective_n(adjacency,n)
         nodes.append(n_prime)
         print(n_prime)
         print(p)
@@ -490,32 +668,37 @@ def run_trials(n,p,iterations):
 
         # Compute central solution
         start_time = time.time()
-        m1, flows1 = solve_TOP(adjacency,n,k,prizes,1,0)
+        m1, flows1 = solve_TOP(adjacency,n,k,prizes,1,0,ranges,distances)
+        paths = construct_path(m1,n,flows1,2)
         comp_central.append(time.time()-start_time)
+        print
         central.append(m1.objval)
         holder = 0;
 
         print("\n\n Finished Central \n\n")
         print(prizes)
-
+        paths_res = []
+        paths_unres = []
+        paths_turn = []
         # Compute reserved solution
         if flag_res:
             start_time = time.time()
-            scores, paths = reserved_path_solver(adjacency,n,k,prizes)
+            scores, paths_res = reserved_path_solver(adjacency,n,k,prizes,ranges,distances)
             comp_reserved.append(time.time()-start_time)
             reserved.append(np.sum(scores))
 
         # Compute unreserved solution
         if flag_unres:
             start_time = time.time()
-            scores, holder = unreserved_solver(adjacency,n,prizes,k)
+            scores, paths_unres = unreserved_solver(adjacency,n,prizes,k,ranges,distances)
             comp_unreserved.append(time.time()-start_time)
             unreserved.append(np.sum(scores))
 
         # Compute turn-based solution
         if flag_turn:
             start_time = time.time()
-            scores, paths = turn_wrapper(adjacency,n,prizes)
+            n_unweighted,adj_unweighted,prizes_unweighted = convert_weighted_DAG(distances,n,prizes)
+            scores, paths_turn = turn_wrapper(adj_unweighted,n_unweighted,prizes_unweighted,ranges)
             comp_turn.append(time.time()-start_time)
             turn.append(np.sum(scores))
         with open(filename, mode='w') as trial_results:
@@ -530,9 +713,17 @@ def run_trials(n,p,iterations):
             results.writerow(comp_unreserved)
             results.writerow(comp_turn)
 
+
     print(adjacency)
     print(holder)
     print(prizes)
+    print(prizes_unweighted)
+    print(distances)
+    print(adj_unweighted)
+    print(paths)
+    print(paths_res)
+    print(paths_unres)
+    print(paths_turn)
     print(central,reserved,unreserved,turn)
     print(comp_central,comp_reserved,comp_unreserved,comp_turn)
     with open(filename, mode='w') as trial_results:
