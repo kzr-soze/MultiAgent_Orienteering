@@ -6,9 +6,9 @@ import csv
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 
-N_CONSTANT = 35
+N_CONSTANT = 25
 P_CONSTANT = .25
-ITERATIONS_CONSTANT = 20
+ITERATIONS_CONSTANT = 15
 PRIZE_MAX_CONSTANT = 3
 MAX_LENGTH = 3
 BOX_SIZE = 10
@@ -319,11 +319,14 @@ def unreserved_best_response(adjacency,n,prizes,first_path,ranges,distances):
     #full_arrivals1[0] = 0
 #     print(first_path)
     visited1 = np.zeros(n)
+    timer = -0.5
+    previous = 0
     for i in range(len(first_path)):
 #         print(i)
         temp = first_path[i]
+        timer = timer + distances[previous][temp]
 #         print(temp)
-        arrivals1[temp] = i -.5
+        arrivals1[temp] = timer
         visited1[temp] = 1
     # print(full_arrivals1)
 
@@ -351,7 +354,7 @@ def unreserved_best_response(adjacency,n,prizes,first_path,ranges,distances):
 
 
     # Enforce correct arrival times
-    m.addConstrs((arrivals2[i] >= arrivals2[j] + (flows[j,i] - 1)* n + flows[j,i] for i in nodes for j in nodes), "arrivalEnforced")
+    m.addConstrs((arrivals2[i] >= arrivals2[j] + (flows[j,i] - 1)* n*n + distances[j,i]*flows[j,i] for i in nodes for j in nodes), "arrivalEnforced")
 
     # Set starting point
     m.addConstr(arrivals2[0] == 0, "startEnforced")
