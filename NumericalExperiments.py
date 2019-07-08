@@ -6,9 +6,9 @@ import csv
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 
-N_CONSTANT = 25
+N_CONSTANT = 20
 P_CONSTANT = .25
-ITERATIONS_CONSTANT = 15
+ITERATIONS_CONSTANT = 1
 PRIZE_MAX_CONSTANT = 3
 MAX_LENGTH = 3
 BOX_SIZE = 10
@@ -16,6 +16,8 @@ MAX_RANGE = 15
 flag_res = True
 flag_unres = True
 flag_turn = True
+flag_delaunay = False
+flag_exp = True
 
 def connected(vertex,adjacency,n,visited):
     visited[vertex] = 1
@@ -60,9 +62,9 @@ def rand_Delaunay_graph(n):
     points[:,0] = x
     points[:,1] = y
     tri = Delaunay(points)
-    # plt.triplot(points[:,0], points[:,1], tri.simplices.copy())
-    # plt.plot(points[:,0], points[:,1], 'o')
-    # plt.show()
+    plt.triplot(points[:,0], points[:,1], tri.simplices.copy())
+    plt.plot(points[:,0], points[:,1], 'o')
+    plt.show()
     adj = np.zeros([n,n])
     for item in tri.vertices:
         adj[min(item[0],item[1]),max(item[0],item[1])] = 1
@@ -649,7 +651,16 @@ def run_trials(n,p,iterations):
     start_time = time.time()
     elapsed_time = time.time() - start_time
     # filename = ('ER_trial_results_{}_{}.csv'.format(n,p))
-    filename = ('R2_trial_results_{}_{}_{}.csv'.format(n,r,BOX_SIZE))
+    if flag_delaunay:
+        if flag_exp:
+            filename = ('Delaunay_trial_results_{}_exp.csv'.format(n))
+        else:
+            filename = ('Delaunay_trial_results_{}.csv'.format(n))
+    else:
+        if flag_exp:
+            filename = ('R2_trial_results_{}_{}_{}_exp.csv'.format(n,r,BOX_SIZE))
+        else:
+            filename = ('R2_trial_results_{}_{}_{}.csv'.format(n,r,BOX_SIZE))
     ranges = [MAX_RANGE,MAX_RANGE]
     paths_res = []
     paths_unres = []
@@ -667,11 +678,19 @@ def run_trials(n,p,iterations):
         #adjacency = rand_Delaunay_graph(n)
         #distances = adjacency * (np.random.randint(2,size=(n,n))+1)
         distances = []
-        adjacency, distances, n = rand_R2_graph(n)
+        if flag_delaunay:
+            adjacency, distances, n = rand_Delaunay_graph(n)
+        else:
+            adjacency, distances, n = rand_R2_graph(n)
         n_prime = effective_n(adjacency,n)
         prizes = []
-        for i in range(n):
-            prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
+        if flag_exp:
+            temp_prizes = np.random.geometric(1/((PRIZE_MAX_CONSTANT-1)/2+1),n)
+            for i in range(n):
+                prizes.append(temp_prizes[i])
+        else:
+            for i in range(n):
+                prizes.append(random.randint(1,PRIZE_MAX_CONSTANT))
         prizes[0] = 0
         prizes[n-1] = 0
         nodes.append(n_prime)
